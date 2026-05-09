@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>부동산 거주 형태별 몬테카를로 시뮬레이션</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 20px; line-height: 1.6; }
+        h1, h2, h3 { color: #333; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .panel { flex: 1; min-width: 300px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9; }
+        .input-group { margin-bottom: 10px; }
+        .input-group label { display: inline-block; width: 180px; font-size: 14px; }
+        .input-group input { width: 100px; padding: 4px; }
+        .btn-run { display: block; width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+        .btn-run:hover { background: #0056b3; }
+        .chart-container { margin-top: 30px; }
+        .chart-box { margin-bottom: 30px; }
+        .chart-box select { margin-bottom: 10px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 14px; }
+        table, th, td { border: 1px solid #ccc; }
+        th, td { padding: 8px; text-align: center; }
+        th { background: #eee; }
+        .description { background: #eef7ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <h1>부동산 구입 vs 전세 vs 월세 몬테카를로 시뮬레이션</h1>
+
+    <div class="description">
+        <h2>📊 몬테카를로 시뮬레이션이란?</h2>
+        <p>몬테카를로 시뮬레이션은 불확실성을 가진 변수들(예: 투자 수익률, 부동산 가격 상승률)에 대해 무작위 값을 반복적으로 대입하여 발생 가능한 모든 결과의 확률 분포를 분석하는 기법입니다. 본 시뮬레이션에서는 각 거주 형태별로 향후 50년간의 자산 변화를 수천 번 시뮬레이션하여, 그 중 중간값(Median)과 상하위 0.5 표준편차(±0.5 Sigma) 범위를 예측합니다.</p>
+
+        <h3>🔹 각 변수의 영향 및 민감도</h3>
+        <ul>
+            <li><strong>초기 자본 및 대출:</strong> 초기 자본이 클수록 복리 효과로 인해 장기 자산 격차가 커집니다. 대출 금리가 높으면 이자 비용이 투자 수익을 갉아먹어 자산 증식에 악영향을 줍니다.</li>
+            <li><strong>투자 수익률 (ROI):</strong> 전세 및 월세의 경우 남은 잉여 현금을 투자하게 되므로, 투자 수익률의 평균과 변동성(표준편차)이 최종 자산에 가장 큰 영향을 미치는 민감도 1위 변수입니다.</li>
+            <li><strong>부동산 가격 상승률:</strong> 부동산 구입 시 가장 민감한 변수입니다. 레버리지(대출)를 활용하기 때문에 집값이 상승하면 자산이 급증하지만, 하락 시 큰 손실을 봅니다.</li>
+            <li><strong>거주 비용 (세금, 유지보수, 복비, 통근비):</strong> 매년 발생하는 고정 지출로, 장기적으로 복리 효과를 저해합니다. 구입은 세금과 유지보수비, 월세는 매달 나가는 월세 비용이 가장 큰 부담입니다.</li>
+        </ul>
+    </div>
+
+    <form id="simForm">
+        <div class="container">
+            <!-- 공통 설정 -->
+            <div class="panel">
+                <h3>기본 설정 (단위: 만원)</h3>
+                <div class="input-group"><label>가용 현금 (초기자본)</label><input type="number" id="initial_cash" value="30000"></div>
+                <div class="input-group"><label>월 소득 (세후)</label><input type="number" id="monthly_income" value="400"></div>
+                <div class="input-group"><label>월 기본 생활비</label><input type="number" id="monthly_living" value="200"></div>
+                <div class="input-group"><label>주식/펀드 등 투자수익률 (%)</label><input type="number" step="0.1" id="roi_mean" value="6.0"></div>
+                <div class="input-group"><label>투자수익률 변동성(표준편차)</label><input type="number" step="0.1" id="roi_std" value="15.0"></div>
+                <div class="input-group"><label>소득 상승률 (%)</label><input type="number" step="0.1" id="income_growth" value="3.0"></div>
+                <div class="input-group"><label>시뮬레이션 기간 (년)</label><input type="number" id="years" value="50" max="100"></div>
+            </div>
+
+            <!-- 매매 설정 -->
+            <div class="panel">
+                <h3>부동산 구입 (매매)</h3>
+                <div class="input-group"><label>주택 가격</label><input type="number" id="buy_price" value="80000"></div>
+                <div class="input-group"><label>주택담보대출 금액</label><input type="number" id="buy_loan" value="50000"></div>
+                <div class="input-group"><label>대출 금리 (%)</label><input type="number" step="0.1" id="buy_loan_rate" value="4.5"></div>
+                <div class="input-group"><label>연간 유지보수비</label><input type="number" id="buy_maintenance" value="200"></div>
+                <div class="input-group"><label>월 통근비</label><input type="number" id="buy_commute" value="30"></div>
+                <div class="input-group"><label>부동산 가격 상승률 (%)</label><input type="number" step="0.1" id="house_growth_mean" value="3.5"></div>
+                <div class="input-group"><label>부동산 가격 변동성 (표준편차)</label><input type="number" step="0.1" id="house_growth_std" value="8.0"></div>
+                <p style="font-size:12px; color:gray;">* 취득세(약 1.5%), 매년 재산세/종부세(약 0.3%), 복비(0.5%) 등은 자동 계산됩니다.</p>
+            </div>
+
+            <!-- 전세 설정 -->
+            <div class="panel">
+                <h3>전세</h3>
+                <div class="input-group"><label>전세 보증금</label><input type="number" id="jeonse_price" value="50000"></div>
+                <div class="input-group"><label>전세 자금 대출</label><input type="number" id="jeonse_loan" value="20000"></div>
+                <div class="input-group"><label>대출 금리 (%)</label><input type="number" step="0.1" id="jeonse_loan_rate" value="4.0"></div>
+                <div class="input-group"><label>월 통근비</label><input type="number" id="jeonse_commute" value="15"></div>
+                <div class="input-group"><label>전세가 상승률 (%)</label><input type="number" step="0.1" id="jeonse_growth_mean" value="2.5"></div>
+                <p style="font-size:12px; color:gray;">* 4년마다 이사 및 복비(0.4%) 발생으로 가정합니다.</p>
+            </div>
+
+            <!-- 월세 설정 -->
+            <div class="panel">
+                <h3>월세</h3>
+                <div class="input-group"><label>월세 보증금</label><input type="number" id="rent_deposit" value="5000"></div>
+                <div class="input-group"><label>월세 금액</label><input type="number" id="rent_monthly" value="120"></div>
+                <div class="input-group"><label>월 통근비</label><input type="number" id="rent_commute" value="10"></div>
+                <div class="input-group"><label>월세 상승률 (%)</label><input type="number" step="0.1" id="rent_growth_mean" value="2.0"></div>
+                <p style="font-size:12px; color:gray;">* 2년마다 이사 및 복비(0.4%) 발생으로 가정합니다.</p>
+            </div>
+        </div>
+        <button type="button" class="btn-run" onclick="runSimulation()">시뮬레이션 실행 (약 3초 소요)</button>
+    </form>
+
+    <div class="chart-container" id="results" style="display: none;">
+        <h2>📈 시뮬레이션 결과 (단위: 만원)</h2>
+        <p>각 그래프의 선은 연도별 자산의 <strong>중간값(Median)</strong>을 나타내며, 채워진 영역은 <strong>±0.5 Sigma(약 상하 19.1%, 총 38.2% 확률 구간)</strong>를 의미합니다.</p>
+
+        <div class="chart-box">
+            <h3>1. 부동산 구입 (Buy)</h3>
+            <select id="buyChartType" onchange="updateChartType('buyChart', this.value)">
+                <option value="line">Line Chart</option>
+                <option value="bar">Bar Chart</option>
+            </select>
+            <canvas id="buyChart" width="800" height="300"></canvas>
+        </div>
+
+        <div class="chart-box">
+            <h3>2. 전세 (Jeonse)</h3>
+            <select id="jeonseChartType" onchange="updateChartType('jeonseChart', this.value)">
+                <option value="line">Line Chart</option>
+                <option value="bar">Bar Chart</option>
+            </select>
+            <canvas id="jeonseChart" width="800" height="300"></canvas>
+        </div>
+
+        <div class="chart-box">
+            <h3>3. 월세 (Rent)</h3>
+            <select id="rentChartType" onchange="updateChartType('rentChart', this.value)">
+                <option value="line">Line Chart</option>
+                <option value="bar">Bar Chart</option>
+            </select>
+            <canvas id="rentChart" width="800" height="300"></canvas>
+        </div>
+
+        <div class="chart-box">
+            <h3>4. 거주 형태별 중간값 비교</h3>
+            <canvas id="compareChart" width="800" height="300"></canvas>
+        </div>
+    </div>
+
+    <div class="description" style="margin-top: 40px;">
+        <h2>📚 참고: 대한민국 수도권 아파트 최근 20년 통계자료 (참조용)</h2>
+        <p>한국부동산원 및 통계청 데이터를 기반으로 한 대략적인 20년(2003~2023) 연평균 지표입니다. 시뮬레이션 변수 설정 시 참고하세요.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>지표</th>
+                    <th>연평균 변동률 / 수치</th>
+                    <th>비고</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>수도권 아파트 매매가격 상승률</td>
+                    <td>약 3.8% ~ 4.5%</td>
+                    <td>IMF, 금융위기 등 하락기 포함 연평균</td>
+                </tr>
+                <tr>
+                    <td>수도권 아파트 전세가격 상승률</td>
+                    <td>약 4.0% ~ 5.0%</td>
+                    <td>매매가 대비 변동성이 다소 낮으나 지속 상승</td>
+                </tr>
+                <tr>
+                    <td>평균 소비자 물가 상승률 (CPI)</td>
+                    <td>약 2.5%</td>
+                    <td>생활비 및 기본 인플레이션 지표</td>
+                </tr>
+                <tr>
+                    <td>코스피(KOSPI) 연평균 수익률</td>
+                    <td>약 5.5% ~ 6.5%</td>
+                    <td>배당 포함 장기 투자 수익률 (변동성 약 15~20%)</td>
+                </tr>
+                <tr>
+                    <td>주택담보대출 평균 금리</td>
+                    <td>약 3.5% ~ 4.5%</td>
+                    <td>시기별 편차 큼 (최저 2%대 ~ 최고 6%대)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 정규분포 난수 생성기 (Box-Muller 변환)
+        function randn_bm() {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+            while(v === 0) v = Math.random();
+            return Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+        }
+
+        // 변수 가져오기
+        function getVal(id) {
+            return parseFloat(document.getElementById(id).value);
+        }
+
+        let charts = {};
+
+        function runSimulation() {
+            const numSimulations = 1000;
+            const years = parseInt(getVal('years'));
+
+            // 공통 변수
+            const initialCash = getVal('initial_cash');
+            const initialMonthlyIncome = getVal('monthly_income');
+            const initialMonthlyLiving = getVal('monthly_living');
+            const roiMean = getVal('roi_mean') / 100;
+            const roiStd = getVal('roi_std') / 100;
+            const incomeGrowth = getVal('income_growth') / 100;
+
+            // 매매 변수
+            const buyPriceInitial = getVal('buy_price');
+            const buyLoanInitial = getVal('buy_loan');
+            const buyLoanRate = getVal('buy_loan_rate') / 100;
+            const buyMaintenance = getVal('buy_maintenance');
+            const buyCommute = getVal('buy_commute');
+            const houseGrowthMean = getVal('house_growth_mean') / 100;
+            const houseGrowthStd = getVal('house_growth_std') / 100;
+
+            // 전세 변수
+            const jeonsePriceInitial = getVal('jeonse_price');
+            const jeonseLoanInitial = getVal('jeonse_loan');
+            const jeonseLoanRate = getVal('jeonse_loan_rate') / 100;
+            const jeonseCommute = getVal('jeonse_commute');
+            const jeonseGrowthMean = getVal('jeonse_growth_mean') / 100;
+
+            // 월세 변수
+            const rentDepositInitial = getVal('rent_deposit');
+            const rentMonthlyInitial = getVal('rent_monthly');
+            const rentCommute = getVal('rent_commute');
+            const rentGrowthMean = getVal('rent_growth_mean') / 100;
+
+            let buyResults = Array.from({length: numSimulations}, () => new Array(years + 1).fill(0));
+            let jeonseResults = Array.from({length: numSimulations}, () => new Array(years + 1).fill(0));
+            let rentResults = Array.from({length: numSimulations}, () => new Array(years + 1).fill(0));
+
+            for (let s = 0; s < numSimulations; s++) {
+                // 매매 시뮬레이션
+                let buyCash = initialCash - (buyPriceInitial - buyLoanInitial);
+                // 초기 부대비용: 취득세(약 1.5%), 복비(0.5%)
+                buyCash -= buyPriceInitial * 0.02;
+                let buyPrice = buyPriceInitial;
+                let buyLoan = buyLoanInitial;
+                let currentIncome = initialMonthlyIncome * 12;
+
+                // 전세 시뮬레이션
+                let jeonseCash = initialCash - (jeonsePriceInitial - jeonseLoanInitial);
+                let jeonsePrice = jeonsePriceInitial;
+                let jeonseLoan = jeonseLoanInitial;
+                // 초기 복비
+                jeonseCash -= jeonsePrice * 0.004;
+
+                // 월세 시뮬레이션
+                let rentCash = initialCash - rentDepositInitial;
+                let rentDeposit = rentDepositInitial;
+                let rentMonthly = rentMonthlyInitial;
+                // 초기 복비
+                rentCash -= rentDeposit * 0.004;
+
+                // 0년차 기록
+                buyResults[s][0] = buyCash + buyPrice - buyLoan;
+                jeonseResults[s][0] = jeonseCash + jeonsePrice - jeonseLoan;
+                rentResults[s][0] = rentCash + rentDeposit;
+
+                for (let y = 1; y <= years; y++) {
+                    let yearlyIncome = initialMonthlyIncome * 12 * Math.pow(1 + incomeGrowth, y);
+                    let yearlyLiving = initialMonthlyLiving * 12 * Math.pow(1 + incomeGrowth, y); // 생활비도 인플레 반영
+
+                    let roi = roiMean + randn_bm() * roiStd;
+
+                    // --- 1. 매매 ---
+                    let h_growth = houseGrowthMean + randn_bm() * houseGrowthStd;
+                    buyPrice = buyPrice * (1 + h_growth);
+                    let buyTax = buyPrice * 0.003; // 재산세/종부세 대략 0.3%
+                    let buyInterest = buyLoan * buyLoanRate;
+                    let b_yearlyCommute = buyCommute * 12 * Math.pow(1 + incomeGrowth, y);
+
+                    let buySavings = yearlyIncome - yearlyLiving - buyTax - buyInterest - buyMaintenance - b_yearlyCommute;
+                    buyCash = (buyCash > 0 ? buyCash * (1 + roi) : buyCash) + buySavings; // 마이너스면 이자수익 없음
+
+                    // 대출 원금 상환 (여유가 있으면 갚는 로직 적용 가능하나 여기선 이자만 내는 만기일시 가정)
+
+                    buyResults[s][y] = buyCash + buyPrice - buyLoan;
+
+                    // --- 2. 전세 ---
+                    let j_interest = jeonseLoan * jeonseLoanRate;
+                    let j_yearlyCommute = jeonseCommute * 12 * Math.pow(1 + incomeGrowth, y);
+                    let j_savings = yearlyIncome - yearlyLiving - j_interest - j_yearlyCommute;
+
+                    jeonseCash = (jeonseCash > 0 ? jeonseCash * (1 + roi) : jeonseCash) + j_savings;
+
+                    // 4년마다 이사 (전세금 인상 및 복비 발생)
+                    if (y % 4 === 0) {
+                        let newJeonsePrice = jeonsePrice * Math.pow(1 + jeonseGrowthMean, 4);
+                        let diff = newJeonsePrice - jeonsePrice;
+                        jeonsePrice = newJeonsePrice;
+                        // 부족분 대출 혹은 현금에서 차감
+                        if (jeonseCash >= diff) {
+                            jeonseCash -= diff;
+                        } else {
+                            jeonseLoan += (diff - jeonseCash);
+                            jeonseCash = 0;
+                        }
+                        jeonseCash -= jeonsePrice * 0.004; // 복비
+                    }
+
+                    jeonseResults[s][y] = jeonseCash + jeonsePrice - jeonseLoan;
+
+                    // --- 3. 월세 ---
+                    let r_yearlyRent = rentMonthly * 12;
+                    let r_yearlyCommute = rentCommute * 12 * Math.pow(1 + incomeGrowth, y);
+                    let r_savings = yearlyIncome - yearlyLiving - r_yearlyRent - r_yearlyCommute;
+
+                    rentCash = (rentCash > 0 ? rentCash * (1 + roi) : rentCash) + r_savings;
+
+                    // 2년마다 재계약/이사
+                    if (y % 2 === 0) {
+                        rentMonthly = rentMonthly * Math.pow(1 + rentGrowthMean, 2);
+                        rentCash -= rentDeposit * 0.004; // 복비
+                    }
+
+                    rentResults[s][y] = rentCash + rentDeposit;
+                }
+            }
+
+            // 통계 계산
+            const getStats = (resultsArray) => {
+                let median = [];
+                let p25 = []; // -0.67 sigma is approx 25th percentile, we need -0.5 sigma which is roughly 30.85th percentile. Let's calculate exactly.
+                let p75 = []; // +0.5 sigma is approx 69.15th percentile.
+
+                for(let y = 0; y <= years; y++) {
+                    let yearData = resultsArray.map(sim => sim[y]);
+                    yearData.sort((a,b) => a - b);
+                    median.push(yearData[Math.floor(numSimulations * 0.5)]);
+                    p25.push(yearData[Math.floor(numSimulations * 0.3085)]); // -0.5 sigma
+                    p75.push(yearData[Math.floor(numSimulations * 0.6915)]); // +0.5 sigma
+                }
+                return { median, p25, p75 };
+            };
+
+            const buyStats = getStats(buyResults);
+            const jeonseStats = getStats(jeonseResults);
+            const rentStats = getStats(rentResults);
+
+            document.getElementById('results').style.display = 'block';
+
+            let labels = Array.from({length: years + 1}, (_, i) => i + '년');
+
+            drawChart('buyChart', 'line', labels, buyStats, 'rgba(54, 162, 235, 1)', 'rgba(54, 162, 235, 0.2)');
+            drawChart('jeonseChart', 'line', labels, jeonseStats, 'rgba(255, 159, 64, 1)', 'rgba(255, 159, 64, 0.2)');
+            drawChart('rentChart', 'line', labels, rentStats, 'rgba(75, 192, 192, 1)', 'rgba(75, 192, 192, 0.2)');
+
+            drawCompareChart(labels, buyStats.median, jeonseStats.median, rentStats.median);
+        }
+
+        function drawChart(canvasId, type, labels, stats, colorMain, colorBg) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            if (charts[canvasId]) {
+                charts[canvasId].destroy();
+            }
+
+            charts[canvasId] = new Chart(ctx, {
+                type: type,
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '+0.5 Sigma',
+                            data: stats.p75,
+                            borderColor: 'transparent',
+                            backgroundColor: colorBg,
+                            fill: '+1',
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Median',
+                            data: stats.median,
+                            borderColor: colorMain,
+                            backgroundColor: colorMain,
+                            fill: false,
+                            borderWidth: 2,
+                            pointRadius: 1
+                        },
+                        {
+                            label: '-0.5 Sigma',
+                            data: stats.p25,
+                            borderColor: 'transparent',
+                            backgroundColor: colorBg,
+                            fill: false,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    scales: {
+                        y: { title: { display: true, text: '순자산 (만원)' } }
+                    }
+                }
+            });
+        }
+
+        function drawCompareChart(labels, buyMed, jeonseMed, rentMed) {
+            const ctx = document.getElementById('compareChart').getContext('2d');
+            if (charts['compareChart']) {
+                charts['compareChart'].destroy();
+            }
+
+            charts['compareChart'] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: '구입 (Buy)', data: buyMed, borderColor: 'rgba(54, 162, 235, 1)', fill: false, borderWidth: 2, pointRadius: 1 },
+                        { label: '전세 (Jeonse)', data: jeonseMed, borderColor: 'rgba(255, 159, 64, 1)', fill: false, borderWidth: 2, pointRadius: 1 },
+                        { label: '월세 (Rent)', data: rentMed, borderColor: 'rgba(75, 192, 192, 1)', fill: false, borderWidth: 2, pointRadius: 1 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { title: { display: true, text: '순자산 중간값 (만원)' } } }
+                }
+            });
+        }
+
+        function updateChartType(canvasId, type) {
+            if (charts[canvasId]) {
+                const chart = charts[canvasId];
+                chart.config.type = type;
+
+                // 바 차트일 때 fill 속성 처리 등 조정
+                if (type === 'bar') {
+                    chart.data.datasets.forEach(ds => {
+                        if (ds.label.includes('Sigma')) {
+                            ds.backgroundColor = 'rgba(200, 200, 200, 0.5)'; // 바차트에서는 겹침 처리가 애매하므로 투명도 조정
+                        }
+                    });
+                } else {
+                    chart.data.datasets[0].fill = '+1';
+                    chart.data.datasets[2].fill = false;
+                }
+                chart.update();
+            }
+        }
+    </script>
+</body>
+</html>
